@@ -165,12 +165,16 @@ sb.auth.onAuthStateChange((_e, session) => {
   if (!booted || u?.id !== user?.id) { booted = true; user = u; setTimeout(boot, 0); }
 });
 
+let bootRun = 0;
 async function boot() {
+  const run = ++bootRun;   // if sign-in state changes again while we wait, the newer run wins
   $("login").hidden = !!user; $("app").hidden = true; $("notAllowed").hidden = true;
   $("who").innerHTML = user ? `${esc(user.email)} <button class="small" id="out">Sign out</button>` : "";
   if (!user) return;
   $("out").onclick = () => sb.auth.signOut();
   const { data: allowed, error } = await sb.rpc("job_am_i_allowed");
+  if (run !== bootRun) return;
+  if (error) console.error("Access check failed:", error.message || error);
   if (!error && allowed === false) {
     $("app").hidden = true; $("notAllowed").hidden = false;
     $("notAllowed").querySelector("b").textContent = user.email;
