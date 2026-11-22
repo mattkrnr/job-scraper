@@ -31,7 +31,7 @@ def rpc(name, payload):
     )
     if r.status_code >= 300:
         raise RuntimeError(f"{name} failed: {r.status_code} {r.text[:300]}")
-    return r.json()
+    return r.json() if r.text.strip() else None  # functions returning void send an empty body
 
 
 def run_query(sites, term, location, distance, hours_old, remote=False):
