@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Job Scraper</title>
+<style>
+  :root {
+    --bg: #f6f5f1; --card: #fff; --ink: #1d1d1b; --muted: #6d6b64; --line: #e3e0d8;
+    --accent: #2f5d50; --accent-soft: #e3eee9; --warn: #a2482b; --chip: #efede6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #161615; --card: #1f1f1d; --ink: #ecebe6; --muted: #9a978e; --line: #33322e;
+      --accent: #7fbfa9; --accent-soft: #23332d; --warn: #e08a6a; --chip: #2a2926; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--ink); }
+  header { display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--card); position: sticky; top: 0; z-index: 2; }
+  header h1 { font-size: 18px; margin: 0; letter-spacing: -0.01em; }
+  header .who { color: var(--muted); font-size: 13px; display: flex; gap: 10px; align-items: center; }
+  main { display: grid; grid-template-columns: 300px 1fr; gap: 20px; padding: 20px; max-width: 1300px; margin: 0 auto; }
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; padding: 12px; } }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+  button { font: inherit; border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 8px; padding: 7px 12px; cursor: pointer; }
+  button:hover { border-color: var(--muted); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--card); font-weight: 600; }
+  button.danger { color: var(--warn); }
+  button.small { padding: 3px 9px; font-size: 13px; }
+  input[type=text], input[type=email], input[type=number], select { font: inherit; width: 100%; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+  label.field { display: block; margin-bottom: 14px; }
+  label.field > span { display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 3px; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .checks { display: flex; flex-wrap: wrap; gap: 6px; }
+  .checks label { background: var(--chip); border-radius: 999px; padding: 4px 11px; font-size: 13px; cursor: pointer; user-select: none; border: 1px solid transparent; }
+  .checks input { display: none; }
+  .checks label:has(input:checked) { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  .search-item { padding: 10px 12px; border-radius: 10px; cursor: pointer; border: 1px solid transparent; margin-bottom: 6px; }
+  .search-item:hover { background: var(--bg); }
+  .search-item.sel { border-color: var(--accent); background: var(--accent-soft); }
+  .search-item .name { font-weight: 600; display: flex; justify-content: space-between; gap: 8px; }
+  .search-item .meta { font-size: 12px; color: var(--muted); }
+  .badge { font-size: 11px; background: var(--accent); color: var(--card); border-radius: 999px; padding: 1px 7px; font-weight: 700; }
+  .off { opacity: .55; }
+  .tabs { display: flex; gap: 4px; flex-wrap: wrap; margin: 4px 0 12px; }
+  .tabs button.on { background: var(--ink); color: var(--card); border-color: var(--ink); }
+  .job { border-top: 1px solid var(--line); padding: 12px 0; }
+  .job:first-child { border-top: 0; }
+  .job h3 { margin: 0 0 2px; font-size: 15px; }
+  .job h3 a { color: inherit; }
+  .job .sub { color: var(--muted); font-size: 13px; }
+  .tags { display: flex; gap: 5px; flex-wrap: wrap; margin: 6px 0; }
+  .tag { background: var(--chip); border-radius: 6px; padding: 1px 7px; font-size: 12px; }
+  .job .acts { display: flex; gap: 6px; flex-wrap: wrap; }
+  details summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+  details .desc { white-space: pre-wrap; font-size: 13px; max-height: 260px; overflow: auto; background: var(--bg); padding: 10px; border-radius: 8px; margin-top: 6px; }
+  .status { font-size: 12px; color: var(--muted); margin: -6px 0 12px; }
+  .empty { color: var(--muted); padding: 20px 0; text-align: center; }
+  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  .toolbar h2 { margin: 0; font-size: 17px; }
+  #login { max-width: 380px; margin: 80px auto; }
+  .stack > * + * { margin-top: 20px; }
+  .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--card); padding: 9px 16px; border-radius: 8px; font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Job Scraper</h1>
+  <div class="who" id="who"></div>
+</header>
+
+<div id="login" class="card" hidden>
+  <h2 style="margin-top:0">Sign in</h2>
+  <p class="hint" style="font-size:14px">We'll email you a sign-in link.</p>
+  <form id="loginForm">
+    <label class="field"><span>Email</span><input type="email" id="email" required autocomplete="email"></label>
+    <button class="primary" type="submit">Send link</button>
+  </form>
+  <p id="loginMsg" class="hint"></p>
+</div>
+
+<main id="app" hidden>
+  <aside class="card">
+    <div class="toolbar"><h2>Searches</h2><button class="primary small" id="newBtn">+ New</button></div>
+    <div id="searchList"></div>
+  </aside>
+  <section class="stack">
+    <div class="card" id="editor" hidden></div>
+    <div class="card" id="matches" hidden></div>
+    <div class="card empty" id="placeholder">Pick a search on the left or create a new one.</div>
+  </section>
+</main>
+<div class="toast" id="toast"></div>
+
+<script type="module">
+import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
+
+const sb = createClient("https://lvaxrikegqknfkzrvmbr.supabase.co", "sb_publishable_A_Mn1IHTHj8uV_e2ut0LXw_wGg8qfsA");
+
+const MODES = [["remote", "Remote"], ["hybrid", "Hybrid"], ["onsite", "On-site"]];
+const LEVELS = [["entry", "Entry"], ["mid", "Mid"], ["senior", "Senior"], ["lead", "Lead / Manager"]];
+const TYPES = [["fulltime", "Full-time"], ["parttime", "Part-time"], ["contract", "Contract"], ["internship", "Internship"]];
+const SITES = [["indeed", "Indeed"], ["google", "Google Jobs"], ["linkedin", "LinkedIn"], ["zip_recruiter", "ZipRecruiter"], ["glassdoor", "Glassdoor"]];
+const STATUSES = ["new", "saved", "applied", "dismissed"];
+const BLANK = { name: "", active: true, origin: "", radius_miles: 25, titles: [], must_include: [], exclude_words: [],
+  min_salary: null, include_no_salary: true, work_modes: ["remote", "hybrid", "onsite"], experience_levels: [],
+  job_types: [], hours_old: 72, sites: ["indeed", "google"] };
+
+let user = null, searches = [], selectedId = null, draft = null, jobs = [], tab = "new", newCounts = {};
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const list = (s) => s.split(",").map((x) => x.trim()).filter(Boolean);
+const money = (n) => n == null ? "" : "$" + (n >= 1000 ? Math.round(n / 1000) + "k" : n);
+function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); setTimeout(() => t.classList.remove("show"), 2200); }
+function ago(ts) {
+  if (!ts) return "never";
+  const m = Math.round((Date.now() - new Date(ts)) / 60000);
+  if (m < 60) return m + "m ago"; if (m < 1440) return Math.round(m / 60) + "h ago"; return Math.round(m / 1440) + "d ago";
+}
+
+// ---------- auth ----------
+$("loginForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const { error } = await sb.auth.signInWithOtp({ email: $("email").value.trim(), options: { emailRedirectTo: location.origin + location.pathname } });
+  $("loginMsg").textContent = error ? "Couldn't send: " + error.message : "Check your email for the sign-in link.";
+};
+let booted = false;
+sb.auth.onAuthStateChange((_e, session) => {
+  const u = session?.user ?? null;
+  if (!booted || u?.id !== user?.id) { booted = true; user = u; setTimeout(boot, 0); }
+});
+
+async function boot() {
+  $("login").hidden = !!user; $("app").hidden = !user;
+  $("who").innerHTML = user ? `${esc(user.email)} <button class="small" id="out">Sign out</button>` : "";
+  if (!user) return;
+  $("out").onclick = () => sb.auth.signOut();
+  await loadSearches();
+}
+
+// ---------- searches ----------
+async function loadSearches() {
+  const { data, error } = await sb.from("job_searches").select("*").order("created_at");
+  if (error) { $("searchList").innerHTML = `<p class="hint">Couldn't load searches: ${esc(error.message)}. If you just signed in for the first time, ask Matt to add your email to the allowed list.</p>`; return; }
+  searches = data;
+  const { data: counts } = await sb.from("job_matches").select("search_id").eq("status", "new");
+  newCounts = {}; (counts || []).forEach((r) => newCounts[r.search_id] = (newCounts[r.search_id] || 0) + 1);
+  renderList();
+  if (selectedId && !searches.find((s) => s.id === selectedId)) selectedId = null;
+  if (selectedId) select(selectedId); else if (!draft) showPlaceholder();
+}
+
+function renderList() {
+  $("searchList").innerHTML = searches.length ? searches.map((s) => `
+    <div class="search-item ${s.id === selectedId ? "sel" : ""} ${s.active ? "" : "off"}" data-id="${s.id}">
+      <div class="name"><span>${esc(s.name)}</span>${newCounts[s.id] ? `<span class="badge">${newCounts[s.id]}</span>` : ""}</div>
+      <div class="meta">${esc(s.origin)} · ${s.radius_miles} mi${s.active ? "" : " · paused"}</div>
+      <div class="meta">Last run ${ago(s.last_run_at)}</div>
+    </div>`).join("") : `<p class="hint">No searches yet.</p>`;
+  document.querySelectorAll(".search-item").forEach((el) => el.onclick = () => select(el.dataset.id));
+}
+
+function showPlaceholder() { $("editor").hidden = true; $("matches").hidden = true; $("placeholder").hidden = false; }
+
+function select(id) {
+  selectedId = id; draft = null; tab = "new";
+  renderList();
+  renderEditor(searches.find((s) => s.id === id));
+  loadMatches();
+}
+
+$("newBtn").onclick = () => openDraft({ ...BLANK });
+
+function openDraft(values) {
+  selectedId = null; draft = values; renderList();
+  renderEditor(values); $("matches").hidden = true;
+  setTimeout(() => (values.name ? $("f_origin") : $("f_name")).focus(), 0);
+}
+
+function checks(name, options, chosen) {
+  return `<div class="checks">${options.map(([v, l]) => `<label><input type="checkbox" name="${name}" value="${v}" ${chosen.includes(v) ? "checked" : ""}>${l}</label>`).join("")}</div>`;
+}
+
+function renderEditor(s) {
+  $("placeholder").hidden = true; $("editor").hidden = false;
+  const isNew = !s.id;
+  $("editor").innerHTML = `
+    <div class="toolbar">
+      <h2>${isNew ? (s.name ? "New search (copy)" : "New search") : "Edit search"}</h2>
+      <div style="display:flex;gap:6px">
+        ${isNew ? "" : `<button class="small" id="dupBtn">Duplicate</button><button class="small danger" id="delBtn">Delete</button>`}
+      </div>
+    </div>
+    ${isNew ? "" : `<p class="status">Last run ${ago(s.last_run_at)}${s.last_run_status ? " — " + esc(s.last_run_status) : ""}</p>`}
+    <form id="editForm">
+      <label class="field"><span>Name</span><input type="text" id="f_name" required value="${esc(s.name)}" placeholder="e.g. Backend roles near home"></label>
+      <div class="row">
+        <label class="field"><span>Origin</span><input type="text" id="f_origin" required value="${esc(s.origin)}" placeholder="ZIP or address"><div class="hint">Where distance is measured from — set per search.</div></label>
+        <label class="field"><span>Distance (miles)</span><input type="number" id="f_radius" min="1" max="200" value="${s.radius_miles}"></label>
+      </div>
+      <label class="field"><span>Job titles to search</span><input type="text" id="f_titles" value="${esc(s.titles.join(", "))}" placeholder="software engineer, backend developer"><div class="hint">Comma-separated. Each one is searched separately.</div></label>
+      <div class="row">
+        <label class="field"><span>Title must include (any)</span><input type="text" id="f_must" value="${esc(s.must_include.join(", "))}" placeholder="engineer, developer"></label>
+        <label class="field"><span>Skip titles with</span><input type="text" id="f_excl" value="${esc(s.exclude_words.join(", "))}" placeholder="clearance, unpaid"></label>
+      </div>
+      <div class="row">
+        <label class="field"><span>Minimum salary (yearly)</span><input type="number" id="f_salary" min="0" step="1000" value="${s.min_salary ?? ""}" placeholder="e.g. 120000"><div class="hint">Hourly pay is converted to yearly (×2080).</div></label>
+        <label class="field"><span>Jobs with no salary listed</span>
+          <select id="f_nosal"><option value="1" ${s.include_no_salary ? "selected" : ""}>Keep them</option><option value="0" ${s.include_no_salary ? "" : "selected"}>Hide them</option></select></label>
+      </div>
+      <label class="field"><span>Work setup</span>${checks("modes", MODES, s.work_modes)}</label>
+      <label class="field"><span>Experience level</span>${checks("levels", LEVELS, s.experience_levels)}<div class="hint">None selected = any. Guessed from the job title (e.g. "Senior", "Lead", "Junior").</div></label>
+      <label class="field"><span>Job type</span>${checks("types", TYPES, s.job_types)}<div class="hint">None selected = any.</div></label>
+      <div class="row">
+        <label class="field"><span>Posted within</span>
+          <select id="f_hours">${[[24, "1 day"], [72, "3 days"], [168, "1 week"], [336, "2 weeks"], [720, "30 days"]].map(([v, l]) => `<option value="${v}" ${s.hours_old == v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+        <label class="field"><span>Status</span>
+          <select id="f_active"><option value="1" ${s.active ? "selected" : ""}>Active — checked every 6 hours</option><option value="0" ${s.active ? "" : "selected"}>Paused</option></select></label>
+      </div>
+      <label class="field"><span>Job boards</span>${checks("sites", SITES, s.sites)}<div class="hint">Indeed and Google Jobs are the most reliable. LinkedIn often blocks automated searches.</div></label>
+      <div style="display:flex;gap:8px"><button class="primary" type="submit">${isNew ? "Create search" : "Save changes"}</button>${isNew ? `<button type="button" id="cancelBtn">Cancel</button>` : ""}</div>
+    </form>`;
+
+  $("editForm").onsubmit = (e) => { e.preventDefault(); save(s); };
+  if (isNew) $("cancelBtn").onclick = () => { draft = null; showPlaceholder(); };
+  else {
+    $("dupBtn").onclick = () => {
+      const { id, user_id, created_at, updated_at, last_run_at, last_run_status, last_run_new, ...rest } = s;
+      openDraft({ ...rest, name: s.name + " (copy)" });
+      toast("Copied — change the origin or filters, then create");
+    };
+    $("delBtn").onclick = async () => {
+      if (!confirm(`Delete "${s.name}" and its saved matches?`)) return;
+      const { error } = await sb.from("job_searches").delete().eq("id", s.id);
+      if (error) return toast("Delete failed: " + error.message);
+      selectedId = null; toast("Deleted"); loadSearches();
+    };
+  }
+}
+
+function picked(name) { return [...document.querySelectorAll(`input[name=${name}]:checked`)].map((i) => i.value); }
+
+async function save(s) {
+  const row = {
+    name: $("f_name").value.trim(), origin: $("f_origin").value.trim(),
+    radius_miles: parseInt($("f_radius").value) || 25,
+    titles: list($("f_titles").value), must_include: list($("f_must").value), exclude_words: list($("f_excl").value),
+    min_salary: $("f_salary").value ? parseInt($("f_salary").value) : null,
+    include_no_salary: $("f_nosal").value === "1",
+    work_modes: picked("modes"), experience_levels: picked("levels"), job_types: picked("types"),
+    hours_old: parseInt($("f_hours").value), active: $("f_active").value === "1", sites: picked("sites"),
+  };
+  if (!row.work_modes.length) return toast("Pick at least one work setup");
+  if (!row.sites.length) return toast("Pick at least one job board");
+  const q = s.id ? sb.from("job_searches").update(row).eq("id", s.id).select().single()
+                 : sb.from("job_searches").insert(row).select().single();
+  const { data, error } = await q;
+  if (error) return toast("Save failed: " + error.message);
+  toast(s.id ? "Saved" : "Created — first results after the next run");
+  draft = null; selectedId = data.id; await loadSearches();
+}
+
+// ---------- matches ----------
+async function loadMatches() {
+  const { data, error } = await sb.from("job_matches").select("*").eq("search_id", selectedId).order("found_at", { ascending: false }).limit(500);
+  jobs = error ? [] : data;
+  renderMatches();
+}
+
+function renderMatches() {
+  $("matches").hidden = false;
+  const counts = Object.fromEntries(STATUSES.map((s) => [s, jobs.filter((j) => j.status === s).length]));
+  const shown = tab === "all" ? jobs : jobs.filter((j) => j.status === tab);
+  $("matches").innerHTML = `
+    <div class="toolbar"><h2>Matches</h2>${counts.new ? `<button class="small" id="clearNew">Dismiss all new</button>` : ""}</div>
+    <div class="tabs">${[...STATUSES, "all"].map((s) => `<button class="small ${tab === s ? "on" : ""}" data-tab="${s}">${s[0].toUpperCase() + s.slice(1)} ${s === "all" ? jobs.length : counts[s]}</button>`).join("")}</div>
+    <div>${shown.length ? shown.map(jobHtml).join("") : `<div class="empty">${jobs.length ? "Nothing here." : "No matches yet. The scraper runs every 6 hours."}</div>`}</div>`;
+  document.querySelectorAll("[data-tab]").forEach((b) => b.onclick = () => { tab = b.dataset.tab; renderMatches(); });
+  document.querySelectorAll("[data-set]").forEach((b) => b.onclick = () => setStatus(b.dataset.id, b.dataset.set));
+  if ($("clearNew")) $("clearNew").onclick = async () => {
+    const ids = jobs.filter((j) => j.status === "new").map((j) => j.id);
+    const { error } = await sb.from("job_matches").update({ status: "dismissed" }).in("id", ids);
+    if (error) return toast(error.message);
+    jobs.forEach((j) => { if (j.status === "new") j.status = "dismissed"; }); newCounts[selectedId] = 0; renderList(); renderMatches();
+  };
+}
+
+function jobHtml(j) {
+  const sal = j.salary_min || j.salary_max ? [money(j.salary_min), money(j.salary_max)].filter(Boolean).join("–") : "Salary not listed";
+  const modeName = Object.fromEntries(MODES)[j.work_mode] || j.work_mode;
+  const levelName = Object.fromEntries(LEVELS)[j.experience_level] || j.experience_level;
+  const url = /^https?:\/\//.test(j.job_url || "") ? j.job_url : "#";
+  return `<div class="job">
+    <h3><a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(j.title)}</a></h3>
+    <div class="sub">${esc(j.company)} · ${esc(j.location)}</div>
+    <div class="tags">
+      <span class="tag">${esc(sal)}</span><span class="tag">${esc(modeName)}</span><span class="tag">${esc(levelName)}</span>
+      ${j.job_type ? `<span class="tag">${esc(j.job_type)}</span>` : ""}<span class="tag">${esc(j.site)}</span>
+      <span class="tag">${j.date_posted ? "Posted " + esc(j.date_posted) : "Found " + ago(j.found_at)}</span>
+    </div>
+    ${j.description ? `<details><summary>Description</summary><div class="desc">${esc(j.description)}</div></details>` : ""}
+    <div class="acts" style="margin-top:8px">
+      ${STATUSES.filter((s) => s !== j.status).map((s) => `<button class="small" data-id="${j.id}" data-set="${s}">${{ new: "Mark new", saved: "Save", applied: "Applied", dismissed: "Dismiss" }[s]}</button>`).join("")}
+    </div>
+  </div>`;
+}
+
+async function setStatus(id, status) {
+  const { error } = await sb.from("job_matches").update({ status }).eq("id", id);
+  if (error) return toast(error.message);
+  const j = jobs.find((x) => x.id === id);
+  if (j.status === "new") newCounts[selectedId]--; if (status === "new") newCounts[selectedId] = (newCounts[selectedId] || 0) + 1;
+  j.status = status; renderList(); renderMatches();
+}
+</script>
+</body>
+</html>
