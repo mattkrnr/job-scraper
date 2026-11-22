@@ -25,4 +25,9 @@ jobs:
         working-directory: scraper
         env:
           JOB_SCRAPER_TOKEN: ${{ secrets.JOB_SCRAPER_TOKEN }}
-        run: python scrape.py
+        run: |
+          if [ -z "$JOB_SCRAPER_TOKEN" ]; then
+            echo "::error::Repo secret JOB_SCRAPER_TOKEN is missing. Add it under Settings > Secrets and variables > Actions > Repository secrets."
+            exit 1
+          fi
+          python scrape.py

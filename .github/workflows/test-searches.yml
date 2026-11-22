@@ -20,6 +20,10 @@ jobs:
         env:
           JOB_SCRAPER_TOKEN: ${{ secrets.JOB_SCRAPER_TOKEN }}
         run: |
+          if [ -z "$JOB_SCRAPER_TOKEN" ]; then
+            echo "::error::Repo secret JOB_SCRAPER_TOKEN is missing. Add it under Settings > Secrets and variables > Actions > Repository secrets."
+            exit 1
+          fi
           n=$(curl -sf -X POST "https://lvaxrikegqknfkzrvmbr.supabase.co/rest/v1/rpc/job_scraper_pending_tests" \
             -H "apikey: sb_publishable_A_Mn1IHTHj8uV_e2ut0LXw_wGg8qfsA" \
             -H "Content-Type: application/json" \
