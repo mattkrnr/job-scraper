@@ -127,6 +127,7 @@ class AppUI(unittest.TestCase):
     def test_signed_out_shows_login_and_sends_link(self):
         page = self.open_as(None)
         expect(page.locator("#login")).to_be_visible()
+        expect(page.locator("#app")).to_be_hidden()   # the app area must not show behind the sign-in box
         page.fill("#email", "friend@example.com")
         page.click("#loginForm button")
         expect(page.locator("#loginMsg")).to_contain_text("Check your email")
