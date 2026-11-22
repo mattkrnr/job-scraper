@@ -10,7 +10,15 @@ ENTRY = re.compile(r"(?i:\b(junior|jr\.?|entry[- ]level|new grad|graduate|appren
 
 
 def blank(v):
-    return v is None or (isinstance(v, float) and math.isnan(v)) or (isinstance(v, str) and not v.strip())
+    """True for None, empty strings and pandas/numpy missing values (NaN, NaT, pd.NA)."""
+    if v is None:
+        return True
+    if isinstance(v, str):
+        return not v.strip()
+    try:
+        return bool(v != v)  # NaN and NaT are the only values not equal to themselves
+    except (TypeError, ValueError):  # pd.NA raises on bool()
+        return True
 
 
 def text(v):

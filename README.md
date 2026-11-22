@@ -29,6 +29,21 @@ Sign in by email link. Only the owner and emails in `private.allowed_users` can 
 
 Local dry run (no saving): `cd scraper && pip install -r requirements.txt && DRY_RUN=1 python scrape.py search.json`
 
+## Tests
+
+Every push runs **Actions → Tests**:
+
+| Suite | What it proves |
+| --- | --- |
+| `scraper/test_filters.py` | Filter rules, salary conversion, missing values (NaN/NaT) |
+| `tests/test_scraper_e2e.py` | The real `scrape.py` over HTTP against Postgres built from `supabase/migrations` (fake job boards): scheduled runs, Test button runs, dedupe, bad data, board errors, bad/missing token |
+| `tests/test_permissions.py` | Row-level security as owner / allowed friend / stranger / anonymous |
+| `tests/test_rest_parity.py` | The local API stand-in answers exactly like real PostgREST |
+| `tests/ui/test_app_ui.py` | Real page + real supabase-js in Chromium: create/edit/duplicate/delete, Test button, matches, applications, isolation |
+| `live-boards` job | Which job boards answer GitHub's servers (informational) |
+
+Run locally: `PGHOST=… PGUSER=postgres python -m unittest discover -s tests` (needs Postgres 16 and `psql`).
+
 ## Roadmap
 
 - Phase 2: email alerts for new matches (`job_matches.notified_at` is ready), commute time.

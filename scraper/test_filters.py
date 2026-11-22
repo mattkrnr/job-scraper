@@ -26,6 +26,17 @@ class T(unittest.TestCase):
         self.assertEqual(experience_level("Software Engineer"), "mid")
         self.assertEqual(experience_level("Internal Tools Engineer"), "mid")
 
+    def test_missing_values(self):
+        import pandas as pd
+        from filters import blank
+        for v in (None, "", "  ", math.nan, pd.NaT, pd.NA, float("nan")):
+            self.assertTrue(blank(v), repr(v))
+        for v in ("x", 0, 0.0, False, pd.Timestamp("2026-11-20")):
+            self.assertFalse(blank(v), repr(v))
+        self.assertIsNone(to_match(raw(date_posted=pd.NaT))["date_posted"])
+        self.assertEqual(to_match(raw(date_posted=pd.Timestamp("2026-11-20 13:00")))["date_posted"], "2026-11-20")
+        self.assertEqual(to_match(raw(title=None, company=pd.NA))["title"], "")
+
     def test_salary(self):
         self.assertEqual(yearly(50, "hourly"), 104000)
         self.assertEqual(yearly(120000, "yearly"), 120000)

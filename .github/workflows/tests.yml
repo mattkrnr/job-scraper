@@ -1,0 +1,101 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch: {}
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      UI_JWT_SECRET: ci-only-test-secret-not-used-anywhere-else-0123456789
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: scraper/requirements.txt
+      - run: pip install -r scraper/requirements.txt playwright
+
+      - name: Filter unit tests
+        working-directory: scraper
+        run: python -m unittest -v test_filters
+
+      - name: JobSpy still accepts the arguments we pass
+        run: |
+          python - <<'EOF'
+          import inspect, jobspy
+          params = inspect.signature(jobspy.scrape_jobs).parameters
+          used = ["site_name", "search_term", "google_search_term", "location", "distance", "hours_old",
+                  "results_wanted", "country_indeed", "description_format", "verbose"]
+          missing = [p for p in used if p not in params]
+          assert not missing, f"jobspy.scrape_jobs no longer accepts: {missing}"
+          print("ok:", ", ".join(used))
+          EOF
+
+      - name: Scraper end-to-end + permissions (real Postgres, real migrations)
+        working-directory: tests
+        run: python -m unittest -v test_scraper_e2e test_permissions
+
+      - name: Build app database and start real PostgREST
+        working-directory: tests
+        run: |
+          python -c "import harness; harness.build_db('app')"
+          curl -sSL https://github.com/PostgREST/postgrest/releases/download/v12.2.3/postgrest-v12.2.3-linux-static-x64.tar.xz | tar xJ -C /tmp
+          PGRST_DB_URI="postgres://authenticator:authenticator@localhost:5432/app" PGRST_DB_SCHEMAS=public \
+          PGRST_DB_ANON_ROLE=anon PGRST_JWT_SECRET="$UI_JWT_SECRET" nohup /tmp/postgrest > /tmp/postgrest.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf http://localhost:3000/ >/dev/null && break; sleep 1; done
+          curl -sf http://localhost:3000/ >/dev/null || (cat /tmp/postgrest.log; exit 1)
+
+      - name: Local stand-in matches real PostgREST
+        working-directory: tests
+        env:
+          PGDATABASE: app
+          REAL_POSTGREST_URL: http://localhost:3000
+        run: python -m unittest -v test_rest_parity
+
+      - name: Browser tests (real page, real supabase-js, real PostgREST)
+        env:
+          PGDATABASE: app
+          REAL_POSTGREST_URL: http://localhost:3000
+          APP_URL: http://localhost:8000/index.html
+        run: |
+          python -m playwright install --with-deps chromium
+          nohup python -m http.server 8000 > /tmp/http.log 2>&1 &
+          sleep 1
+          cd tests/ui && python -m unittest -v test_app_ui
+
+      - name: PostgREST log (on failure)
+        if: failure()
+        run: cat /tmp/postgrest.log || true
+
+  live-boards:
+    # Real (tiny) searches against each job board, to see which ones answer GitHub's servers. Informational only.
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: scraper/requirements.txt
+      - run: pip install -r scraper/requirements.txt
+      - working-directory: scraper
+        run: python smoke_boards.py

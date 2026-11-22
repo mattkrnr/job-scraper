@@ -93,6 +93,11 @@
   <p id="loginMsg" class="hint"></p>
 </div>
 
+<div id="notAllowed" class="card" hidden style="max-width:460px;margin:80px auto">
+  <h2 style="margin-top:0">Almost there</h2>
+  <p>You're signed in as <b></b>, but that email isn't on the list for this app yet. Ask Matt to add it, then reload this page.</p>
+</div>
+
 <main id="app" hidden>
   <aside class="card">
     <div class="toolbar"><h2>Searches</h2><button class="primary small" id="newBtn">+ New</button></div>
@@ -161,10 +166,17 @@ sb.auth.onAuthStateChange((_e, session) => {
 });
 
 async function boot() {
-  $("login").hidden = !!user; $("app").hidden = !user;
+  $("login").hidden = !!user; $("app").hidden = !user; $("notAllowed").hidden = true;
   $("who").innerHTML = user ? `${esc(user.email)} <button class="small" id="out">Sign out</button>` : "";
   if (!user) return;
   $("out").onclick = () => sb.auth.signOut();
+  const { data: allowed, error } = await sb.rpc("job_am_i_allowed");
+  if (!error && allowed === false) {
+    $("app").hidden = true; $("notAllowed").hidden = false;
+    $("notAllowed").querySelector("b").textContent = user.email;
+    return;
+  }
+  $("notAllowed").hidden = true;
   await loadSearches();
 }
 

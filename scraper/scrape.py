@@ -20,6 +20,7 @@ ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "sb_publishable_A_Mn1IHTHj8uV_e2u
 TOKEN = os.environ.get("JOB_SCRAPER_TOKEN", "")
 DRY_RUN = os.environ.get("DRY_RUN") == "1"
 RESULTS_PER_QUERY = int(os.environ.get("RESULTS_PER_QUERY", "40"))
+QUERY_PAUSE = float(os.environ.get("QUERY_PAUSE", "2"))  # seconds between board queries, to avoid blocks
 
 
 def rpc(name, payload):
@@ -70,7 +71,7 @@ def run_search(search):
                 raw += run_query(sites, term, location, search["radius_miles"], search["hours_old"], remote)
             except Exception as e:  # one bad board shouldn't sink the run
                 errors.append(f"{term}{' (remote)' if remote else ''}: {str(e)[:120]}")
-            time.sleep(2)
+            time.sleep(QUERY_PAUSE)
 
     matches, rejected, seen, dropped = [], [], set(), {}
     for job in raw:
@@ -120,8 +121,11 @@ def run_tests():
             rpc("job_scraper_finish_test", {"p_token": TOKEN, "p_id": t["id"], "p_results": results, "p_ok": True, "p_message": status})
             print(f"test {t['id']}: {status}")
         except Exception as e:
-            rpc("job_scraper_finish_test", {"p_token": TOKEN, "p_id": t["id"], "p_results": [], "p_ok": False, "p_message": str(e)[:500]})
             print(f"test {t['id']} failed: {e}")
+            try:
+                rpc("job_scraper_finish_test", {"p_token": TOKEN, "p_id": t["id"], "p_results": [], "p_ok": False, "p_message": str(e)[:500]})
+            except Exception as e2:  # keep going; the claim expires after 30 min and the test is retried
+                print(f"  could not record the failure either: {e2}")
 
 
 def main():
@@ -134,6 +138,7 @@ def main():
             sys.exit("JOB_SCRAPER_TOKEN is not set")
         searches = rpc("job_scraper_searches", {"p_token": TOKEN})
     print(f"{len(searches)} active searches")
+    failed = []
     for s in searches:
         try:
             matches, _rejected, status = run_search(s)
@@ -145,8 +150,19 @@ def main():
             for m in matches[:25]:
                 print(f"  {m['title']} @ {m['company']} [{m['work_mode']}, {m['experience_level']}] {m['salary_min']}-{m['salary_max']} {m['job_url']}")
             continue
-        new = rpc("job_scraper_save", {"p_token": TOKEN, "p_search_id": s["id"], "p_jobs": matches, "p_status": status})
-        print(f"{s['name']}: {new} new — {status}")
+        try:
+            new = rpc("job_scraper_save", {"p_token": TOKEN, "p_search_id": s["id"], "p_jobs": matches, "p_status": status})
+            print(f"{s['name']}: {new} new — {status}")
+        except Exception as e:  # don't let one search's bad data stop everyone else's
+            failed.append(s["name"])
+            print(f"{s['name']}: SAVE FAILED — {e}")
+            try:
+                rpc("job_scraper_save", {"p_token": TOKEN, "p_search_id": s["id"], "p_jobs": [],
+                                         "p_status": f"error saving results: {str(e)[:300]}"})
+            except Exception:
+                pass
+    if failed:
+        sys.exit(f"{len(failed)} search(es) failed to save: {', '.join(failed)}")
 
 
 if __name__ == "__main__":
