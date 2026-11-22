@@ -54,6 +54,13 @@
   .job .acts { display: flex; gap: 6px; flex-wrap: wrap; }
   details summary { cursor: pointer; font-size: 13px; color: var(--muted); }
   details .desc { white-space: pre-wrap; font-size: 13px; max-height: 260px; overflow: auto; background: var(--bg); padding: 10px; border-radius: 8px; margin-top: 6px; }
+  .job.unseen h3 { font-weight: 700; }
+  .job.seen h3 { font-weight: 500; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-right: 7px; vertical-align: middle; }
+  .tag.strong { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .appbox { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-top: 8px; }
+  .appbox .field { margin-bottom: 10px; }
+  .appbox input, .appbox select { background: var(--card); }
   .status { font-size: 12px; color: var(--muted); margin: -6px 0 12px; }
   .empty { color: var(--muted); padding: 20px 0; text-align: center; }
   .toolbar { display: flex; gap: 8px; flex-wrap: wrap; justify-content: space-between; align-items: center; margin-bottom: 12px; }
@@ -279,6 +286,22 @@ function renderMatches() {
     <div>${shown.length ? shown.map(jobHtml).join("") : `<div class="empty">${jobs.length ? "Nothing here." : "No matches yet. The scraper runs every 6 hours."}</div>`}</div>`;
   document.querySelectorAll("[data-tab]").forEach((b) => b.onclick = () => { tab = b.dataset.tab; renderMatches(); });
   document.querySelectorAll("[data-set]").forEach((b) => b.onclick = () => setStatus(b.dataset.id, b.dataset.set));
+  document.querySelectorAll("[data-open]").forEach((a) => a.addEventListener("click", () => {
+    const j = jobs.find((x) => x.id === a.dataset.open);
+    if (!j.viewed_at) updateJob(j, { viewed_at: new Date().toISOString() });
+  }));
+  document.querySelectorAll("[data-view]").forEach((b) => b.onclick = () => {
+    const j = jobs.find((x) => x.id === b.dataset.view);
+    updateJob(j, { viewed_at: j.viewed_at ? null : new Date().toISOString() });
+  });
+  document.querySelectorAll("[data-saveapp]").forEach((b) => b.onclick = async () => {
+    const j = jobs.find((x) => x.id === b.dataset.saveapp);
+    const box = document.querySelector(`[data-app="${j.id}"]`);
+    const patch = {};
+    box.querySelectorAll("[data-f]").forEach((el) => patch[el.dataset.f] = el.value.trim() || null);
+    if (patch.application_url && !/^https?:\/\//.test(patch.application_url)) patch.application_url = "https://" + patch.application_url;
+    if (await updateJob(j, patch)) toast("Application saved");
+  });
   if ($("clearNew")) $("clearNew").onclick = async () => {
     const ids = jobs.filter((j) => j.status === "new").map((j) => j.id);
     const { error } = await sb.from("job_matches").update({ status: "dismissed" }).in("id", ids);
@@ -287,32 +310,68 @@ function renderMatches() {
   };
 }
 
+const STAGES = [["applied", "Applied — waiting"], ["interviewing", "Interviewing"], ["offer", "Offer"], ["rejected", "Rejected"], ["no_response", "No response"], ["withdrawn", "Withdrew"]];
+
+function appHtml(j) {
+  if (j.status !== "applied") return "";
+  const link = /^https?:\/\//.test(j.application_url || "") ? j.application_url : "";
+  return `<div class="appbox" data-app="${j.id}">
+    <div class="row">
+      <label class="field"><span>Application status</span>
+        <select data-f="application_stage">${STAGES.map(([v, l]) => `<option value="${v}" ${(j.application_stage || "applied") === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+      <label class="field"><span>Applied on</span><input type="date" data-f="applied_at" value="${esc(j.applied_at || "")}"></label>
+    </div>
+    <label class="field"><span>Application / status link ${link ? `<a href="${esc(link)}" target="_blank" rel="noopener noreferrer">open ↗</a>` : ""}</span>
+      <input type="text" data-f="application_url" value="${esc(j.application_url || "")}" placeholder="https://company.wd5.myworkdayjobs.com/... (where you check status)"></label>
+    <label class="field"><span>Notes</span><input type="text" data-f="notes" value="${esc(j.notes || "")}" placeholder="Recruiter name, referral, next step…"></label>
+    <button class="small primary" data-saveapp="${j.id}">Save application</button>
+  </div>`;
+}
+
 function jobHtml(j) {
   const sal = j.salary_min || j.salary_max ? [money(j.salary_min), money(j.salary_max)].filter(Boolean).join("–") : "Salary not listed";
   const modeName = Object.fromEntries(MODES)[j.work_mode] || j.work_mode;
   const levelName = Object.fromEntries(LEVELS)[j.experience_level] || j.experience_level;
   const url = /^https?:\/\//.test(j.job_url || "") ? j.job_url : "#";
-  return `<div class="job">
-    <h3><a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(j.title)}</a></h3>
+  const stageName = Object.fromEntries(STAGES)[j.application_stage];
+  return `<div class="job ${j.viewed_at ? "seen" : "unseen"}">
+    <h3>${j.viewed_at ? "" : `<span class="dot" title="Not viewed yet"></span>`}<a href="${esc(url)}" target="_blank" rel="noopener noreferrer" data-open="${j.id}">${esc(j.title)}</a></h3>
     <div class="sub">${esc(j.company)} · ${esc(j.location)}</div>
     <div class="tags">
       <span class="tag">${esc(sal)}</span><span class="tag">${esc(modeName)}</span><span class="tag">${esc(levelName)}</span>
       ${j.job_type ? `<span class="tag">${esc(j.job_type)}</span>` : ""}<span class="tag">${esc(j.site)}</span>
       <span class="tag">${j.date_posted ? "Posted " + esc(j.date_posted) : "Found " + ago(j.found_at)}</span>
+      ${j.viewed_at ? `<span class="tag">Viewed ${ago(j.viewed_at)}</span>` : ""}
+      ${tab === "all" && j.status !== "new" ? `<span class="tag strong">${esc(j.status === "applied" && stageName ? stageName : j.status)}</span>` : ""}
     </div>
     ${j.description ? `<details><summary>Description</summary><div class="desc">${esc(j.description)}</div></details>` : ""}
+    ${appHtml(j)}
     <div class="acts" style="margin-top:8px">
-      ${STATUSES.filter((s) => s !== j.status).map((s) => `<button class="small" data-id="${j.id}" data-set="${s}">${{ new: "Mark new", saved: "Save", applied: "Applied", dismissed: "Dismiss" }[s]}</button>`).join("")}
+      ${STATUSES.filter((s) => s !== j.status).map((s) => `<button class="small" data-id="${j.id}" data-set="${s}">${{ new: "Back to new", saved: "Save", applied: "I applied", dismissed: "Dismiss" }[s]}</button>`).join("")}
+      <button class="small" data-view="${j.id}">${j.viewed_at ? "Mark not viewed" : "Mark viewed"}</button>
     </div>
   </div>`;
 }
 
+async function updateJob(j, patch) {
+  const { error } = await sb.from("job_matches").update(patch).eq("id", j.id);
+  if (error) { toast(error.message); return false; }
+  Object.assign(j, patch); renderMatches(); return true;
+}
+
 async function setStatus(id, status) {
-  const { error } = await sb.from("job_matches").update({ status }).eq("id", id);
-  if (error) return toast(error.message);
   const j = jobs.find((x) => x.id === id);
-  if (j.status === "new") newCounts[selectedId]--; if (status === "new") newCounts[selectedId] = (newCounts[selectedId] || 0) + 1;
-  j.status = status; renderList(); renderMatches();
+  const patch = { status };
+  if (status === "applied") {
+    if (!j.applied_at) patch.applied_at = new Date().toLocaleDateString("en-CA");
+    if (!j.application_stage) patch.application_stage = "applied";
+    if (!j.viewed_at) patch.viewed_at = new Date().toISOString();
+  }
+  const wasNew = j.status === "new";
+  if (!(await updateJob(j, patch))) return;
+  if (wasNew) newCounts[selectedId]--; if (status === "new") newCounts[selectedId] = (newCounts[selectedId] || 0) + 1;
+  renderList();
+  if (status === "applied") { tab = "applied"; renderMatches(); toast("Add the application link below so you can check its status later"); }
 }
 </script>
 </body>
