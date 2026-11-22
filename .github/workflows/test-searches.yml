@@ -1,0 +1,44 @@
+name: Test searches
+
+# Picks up "Test" requests from the app. GitHub may delay scheduled runs by several minutes.
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: test-searches
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Anything queued?
+        id: check
+        env:
+          JOB_SCRAPER_TOKEN: ${{ secrets.JOB_SCRAPER_TOKEN }}
+        run: |
+          n=$(curl -sf -X POST "https://lvaxrikegqknfkzrvmbr.supabase.co/rest/v1/rpc/job_scraper_pending_tests" \
+            -H "apikey: sb_publishable_A_Mn1IHTHj8uV_e2ut0LXw_wGg8qfsA" \
+            -H "Content-Type: application/json" \
+            -d "{\"p_token\":\"$JOB_SCRAPER_TOKEN\"}")
+          echo "pending=$n"
+          echo "pending=$n" >> "$GITHUB_OUTPUT"
+      - if: steps.check.outputs.pending != '0'
+        uses: actions/checkout@v4
+      - if: steps.check.outputs.pending != '0'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: scraper/requirements.txt
+      - if: steps.check.outputs.pending != '0'
+        run: pip install -r scraper/requirements.txt
+      - if: steps.check.outputs.pending != '0'
+        name: Run queued tests
+        working-directory: scraper
+        env:
+          JOB_SCRAPER_TOKEN: ${{ secrets.JOB_SCRAPER_TOKEN }}
+        run: python scrape.py tests

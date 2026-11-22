@@ -72,7 +72,7 @@ def run_search(search):
                 errors.append(f"{term}{' (remote)' if remote else ''}: {str(e)[:120]}")
             time.sleep(2)
 
-    matches, seen, dropped = [], set(), {}
+    matches, rejected, seen, dropped = [], [], set(), {}
     for job in raw:
         m = to_match(job)
         if m["job_key"] in seen:
@@ -83,16 +83,50 @@ def run_search(search):
             matches.append(m)
         else:
             dropped[why] = dropped.get(why, 0) + 1
+            rejected.append({**m, "reason": why})
 
-    status = f"ok: {len(raw)} scraped, {len(matches)} passed filters"
+    status = f"{len(raw)} scraped, {len(matches)} passed filters"
     if dropped:
         status += " (dropped: " + ", ".join(f"{k} {v}" for k, v in sorted(dropped.items())) + ")"
     if errors:
         status += " | errors: " + "; ".join(errors)
-    return matches, status
+    return matches, rejected, status
+
+
+SEARCH_DEFAULTS = {"name": "Test", "origin": "", "radius_miles": 25, "titles": [], "must_include": [], "exclude_words": [],
+                   "min_salary": None, "include_no_salary": True, "work_modes": ["remote", "hybrid", "onsite"],
+                   "experience_levels": [], "job_types": [], "hours_old": 72, "sites": ["indeed", "google"]}
+
+
+def preview(m, keep_it, reason=""):
+    return {**{k: m[k] for k in ("title", "company", "location", "work_mode", "experience_level", "job_type",
+                                  "salary_min", "salary_max", "site", "job_url", "date_posted")},
+            "description": m["description"][:600], "kept": keep_it, "reason": reason}
+
+
+def run_tests():
+    """Process test runs queued from the app. Results are previews only, never saved as matches."""
+    if not TOKEN:
+        sys.exit("JOB_SCRAPER_TOKEN is not set")
+    tests = rpc("job_scraper_claim_tests", {"p_token": TOKEN})
+    print(f"{len(tests)} test runs")
+    for t in tests:
+        search = {**SEARCH_DEFAULTS, **(t["params"] or {})}
+        try:
+            if not search["origin"].strip():
+                raise ValueError("Origin is empty")
+            matches, rejected, status = run_search(search)
+            results = [preview(m, True) for m in matches][:150] + [preview(m, False, m["reason"]) for m in rejected][:150]
+            rpc("job_scraper_finish_test", {"p_token": TOKEN, "p_id": t["id"], "p_results": results, "p_ok": True, "p_message": status})
+            print(f"test {t['id']}: {status}")
+        except Exception as e:
+            rpc("job_scraper_finish_test", {"p_token": TOKEN, "p_id": t["id"], "p_results": [], "p_ok": False, "p_message": str(e)[:500]})
+            print(f"test {t['id']} failed: {e}")
 
 
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "tests":
+        return run_tests()
     if DRY_RUN and len(sys.argv) > 1:
         searches = [json.load(open(sys.argv[1]))]
     else:
@@ -101,7 +135,11 @@ def main():
         searches = rpc("job_scraper_searches", {"p_token": TOKEN})
     print(f"{len(searches)} active searches")
     for s in searches:
-        matches, status = run_search(s)
+        try:
+            matches, _rejected, status = run_search(s)
+            status = "ok: " + status
+        except Exception as e:  # keep going with the other searches
+            matches, status = [], f"error: {str(e)[:300]}"
         if DRY_RUN:
             print(f"\n== {s['name']} — {status}")
             for m in matches[:25]:

@@ -94,6 +94,7 @@
   </aside>
   <section class="stack">
     <div class="card" id="editor" hidden></div>
+    <div class="card" id="testPanel" hidden></div>
     <div class="card" id="matches" hidden></div>
     <div class="card empty" id="placeholder">Pick a search on the left or create a new one.</div>
   </section>
@@ -169,7 +170,7 @@ function renderList() {
   document.querySelectorAll(".search-item").forEach((el) => el.onclick = () => select(el.dataset.id));
 }
 
-function showPlaceholder() { $("editor").hidden = true; $("matches").hidden = true; $("placeholder").hidden = false; }
+function showPlaceholder() { $("editor").hidden = true; $("matches").hidden = true; $("testPanel").hidden = true; stopPoll(); $("placeholder").hidden = false; }
 
 function select(id) {
   selectedId = id; draft = null; tab = "new";
@@ -227,8 +228,12 @@ function renderEditor(s) {
           <select id="f_active"><option value="1" ${s.active ? "selected" : ""}>Active — checked every 6 hours</option><option value="0" ${s.active ? "" : "selected"}>Paused</option></select></label>
       </div>
       <label class="field"><span>Job boards</span>${checks("sites", SITES, s.sites)}<div class="hint">Indeed and Google Jobs are the most reliable. LinkedIn often blocks automated searches.</div></label>
-      <div style="display:flex;gap:8px"><button class="primary" type="submit">${isNew ? "Create search" : "Save changes"}</button>${isNew ? `<button type="button" id="cancelBtn">Cancel</button>` : ""}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="primary" type="submit">${isNew ? "Create search" : "Save changes"}</button>
+        <button type="button" id="testBtn" title="Runs these settings once without saving matches">Test these settings</button>
+        ${isNew ? `<button type="button" id="cancelBtn">Cancel</button>` : ""}</div>
     </form>`;
+  $("testBtn").onclick = () => queueTest(s.id || null);
+  loadTest(s.id || null);
 
   $("editForm").onsubmit = (e) => { e.preventDefault(); save(s); };
   if (isNew) $("cancelBtn").onclick = () => { draft = null; showPlaceholder(); };
@@ -249,7 +254,7 @@ function renderEditor(s) {
 
 function picked(name) { return [...document.querySelectorAll(`input[name=${name}]:checked`)].map((i) => i.value); }
 
-async function save(s) {
+function readForm() {
   const row = {
     name: $("f_name").value.trim(), origin: $("f_origin").value.trim(),
     radius_miles: parseInt($("f_radius").value) || 25,
@@ -259,14 +264,84 @@ async function save(s) {
     work_modes: picked("modes"), experience_levels: picked("levels"), job_types: picked("types"),
     hours_old: parseInt($("f_hours").value), active: $("f_active").value === "1", sites: picked("sites"),
   };
-  if (!row.work_modes.length) return toast("Pick at least one work setup");
-  if (!row.sites.length) return toast("Pick at least one job board");
+  if (!row.name || !row.origin) { toast("Name and origin are required"); return null; }
+  if (!row.work_modes.length) { toast("Pick at least one work setup"); return null; }
+  if (!row.sites.length) { toast("Pick at least one job board"); return null; }
+  return row;
+}
+
+async function save(s) {
+  const row = readForm();
+  if (!row) return;
   const q = s.id ? sb.from("job_searches").update(row).eq("id", s.id).select().single()
                  : sb.from("job_searches").insert(row).select().single();
   const { data, error } = await q;
   if (error) return toast("Save failed: " + error.message);
   toast(s.id ? "Saved" : "Created — first results after the next run");
   draft = null; selectedId = data.id; await loadSearches();
+}
+
+// ---------- test runs ----------
+let test = null, pollTimer = null;
+function stopPoll() { clearTimeout(pollTimer); pollTimer = null; }
+
+async function queueTest(searchId) {
+  const params = readForm();
+  if (!params) return;
+  const { data, error } = await sb.from("job_test_runs").insert({ search_id: searchId, params }).select().single();
+  if (error) return toast(error.code === "23505" ? "A test is already waiting — results soon" : "Couldn't start test: " + error.message);
+  test = data; renderTest(); poll();
+}
+
+async function loadTest(searchId) {
+  stopPoll();
+  let q = sb.from("job_test_runs").select("*").order("requested_at", { ascending: false }).limit(1);
+  q = searchId ? q.eq("search_id", searchId) : q.is("search_id", null).gte("requested_at", new Date(Date.now() - 3600e3).toISOString());
+  const { data } = await q;
+  test = data?.[0] || null; renderTest();
+  if (test && ["queued", "running"].includes(test.status)) poll();
+}
+
+function poll() {
+  stopPoll();
+  pollTimer = setTimeout(async () => {
+    if (!test) return;
+    const { data } = await sb.from("job_test_runs").select("*").eq("id", test.id).maybeSingle();
+    if (!data || data.id !== test?.id) return;
+    test = data; renderTest();
+    if (["queued", "running"].includes(test.status)) poll();
+  }, 15000);
+}
+
+function renderTest() {
+  const p = $("testPanel");
+  if (!test) { p.hidden = true; return; }
+  p.hidden = false;
+  const when = new Date(test.requested_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  if (test.status === "queued" || test.status === "running") {
+    p.innerHTML = `<div class="toolbar"><h2>Test run</h2></div>
+      <p>${test.status === "queued" ? "Waiting for GitHub to pick it up" : "Searching job boards now"}… <span class="hint">(started ${when}; usually 5–10 minutes, sometimes longer — you can leave this page)</span></p>`;
+    return;
+  }
+  if (test.status === "error") {
+    p.innerHTML = `<div class="toolbar"><h2>Test run failed</h2></div><p class="hint">${esc(test.message)}</p>`;
+    return;
+  }
+  const res = test.results || [];
+  const kept = res.filter((r) => r.kept), dropped = res.filter((r) => !r.kept);
+  const reasons = {}; dropped.forEach((d) => reasons[d.reason] = (reasons[d.reason] || 0) + 1);
+  const row = (r) => {
+    const url = /^https?:\/\//.test(r.job_url || "") ? r.job_url : "#";
+    const sal = r.salary_min || r.salary_max ? [money(r.salary_min), money(r.salary_max)].filter(Boolean).join("–") : "no salary";
+    return `<div class="job"><h3><a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(r.title)}</a></h3>
+      <div class="sub">${esc(r.company)} · ${esc(r.location)}</div>
+      <div class="tags">${r.reason ? `<span class="tag strong">${esc(r.reason)}</span>` : ""}<span class="tag">${esc(sal)}</span>
+      <span class="tag">${esc(r.work_mode)}</span><span class="tag">${esc(r.experience_level)}</span><span class="tag">${esc(r.site)}</span></div></div>`;
+  };
+  p.innerHTML = `<div class="toolbar"><h2>Test results</h2><span class="hint">Ran ${ago(test.finished_at)} · preview only, not saved</span></div>
+    <p class="status">${esc(test.message)}</p>
+    <details open><summary><b>Would match (${kept.length})</b></summary>${kept.length ? kept.map(row).join("") : `<p class="hint">Nothing passed the filters.</p>`}</details>
+    <details style="margin-top:12px"><summary><b>Filtered out (${dropped.length})</b>${Object.keys(reasons).length ? " — " + Object.entries(reasons).map(([k, v]) => `${esc(k)}: ${v}`).join(", ") : ""}</summary>${dropped.map(row).join("")}</details>`;
 }
 
 // ---------- matches ----------
