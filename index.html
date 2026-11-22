@@ -17,6 +17,9 @@
   body { margin: 0; font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--ink); }
   header { display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--card); position: sticky; top: 0; z-index: 2; }
   header h1 { font-size: 18px; margin: 0; letter-spacing: -0.01em; }
+  header .title { display: flex; align-items: center; gap: 10px; }
+  .home-back { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 999px; border: 1px solid var(--line); color: var(--ink); text-decoration: none; font-size: 16px; line-height: 1; }
+  .home-back:hover { border-color: var(--accent); }
   header .who { color: var(--muted); font-size: 13px; display: flex; gap: 10px; align-items: center; }
   main { display: grid; grid-template-columns: 300px 1fr; gap: 20px; padding: 20px; max-width: 1300px; margin: 0 auto; }
   @media (max-width: 860px) { main { grid-template-columns: 1fr; padding: 12px; } }
@@ -73,7 +76,10 @@
 </head>
 <body>
 <header>
-  <h1>Job Scraper</h1>
+  <div class="title">
+    <a id="homeBack" class="home-back" href="/" aria-label="Back to apps" hidden>←</a>
+    <h1>Job Scraper</h1>
+  </div>
   <div class="who" id="who"></div>
 </header>
 
@@ -101,6 +107,20 @@
 </main>
 <div class="toast" id="toast"></div>
 
+<script>
+// Back arrow to the apps homepage — shown only when this tab was opened from it (?from=home).
+(function homeBack() {
+  const url = new URL(location.href);
+  if (url.searchParams.get("from") === "home") {
+    try { sessionStorage.setItem("fromHome", "1"); } catch (_) {}
+    url.searchParams.delete("from");
+    history.replaceState(history.state, "", url);
+  }
+  let fromHome = false;
+  try { fromHome = sessionStorage.getItem("fromHome") === "1"; } catch (_) {}
+  if (fromHome) document.getElementById("homeBack").hidden = false;
+})();
+</script>
 <script type="module">
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
 
