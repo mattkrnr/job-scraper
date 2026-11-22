@@ -308,9 +308,23 @@ function stopPoll() { clearTimeout(pollTimer); pollTimer = null; }
 async function queueTest(searchId) {
   const params = readForm();
   if (!params) return;
-  const { data, error } = await sb.from("job_test_runs").insert({ search_id: searchId, params }).select().single();
-  if (error) return toast(error.code === "23505" ? "A test is already waiting — results soon" : "Couldn't start test: " + error.message);
+  let { data, error } = await sb.from("job_test_runs").insert({ search_id: searchId, params }).select().single();
+  if (error?.code === "23505") {
+    // One open test per person: replace a waiting one with these settings
+    const { data: open } = await sb.from("job_test_runs").select("id,status").in("status", ["queued", "running"]).maybeSingle();
+    if (open?.status === "running") return toast("A test is running right now — try again when it finishes");
+    if (open) ({ data, error } = await sb.from("job_test_runs")
+      .update({ search_id: searchId, params, requested_at: new Date().toISOString() }).eq("id", open.id).eq("status", "queued").select().single());
+    if (!error) toast("Replaced your waiting test with these settings");
+  }
+  if (error) return toast("Couldn't start test: " + error.message);
   test = data; renderTest(); poll();
+}
+
+async function cancelTest() {
+  const { error } = await sb.from("job_test_runs").delete().eq("id", test.id).eq("status", "queued");
+  if (error) return toast(error.message);
+  stopPoll(); test = null; renderTest(); toast("Test cancelled");
 }
 
 async function loadTest(searchId) {
@@ -340,7 +354,9 @@ function renderTest() {
   const when = new Date(test.requested_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   if (test.status === "queued" || test.status === "running") {
     p.innerHTML = `<div class="toolbar"><h2>Test run</h2></div>
-      <p>${test.status === "queued" ? "Waiting for GitHub to pick it up" : "Searching job boards now"}… <span class="hint">(started ${when}; usually 5–10 minutes, sometimes longer — you can leave this page)</span></p>`;
+      <p>${test.status === "queued" ? "Waiting for GitHub to pick it up" : "Searching job boards now"}… <span class="hint">(requested ${when}; usually 5–10 minutes, sometimes longer — you can leave this page)</span></p>
+      ${test.status === "queued" ? `<button class="small" id="cancelTest">Cancel test</button>` : ""}`;
+    if ($("cancelTest")) $("cancelTest").onclick = cancelTest;
     return;
   }
   if (test.status === "error") {
