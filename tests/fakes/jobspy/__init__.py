@@ -29,7 +29,7 @@ def row(**kw):
 
 LOCAL = [
     row(id="1"),                                                                   # mid, onsite, 70-90k
-    row(id="2", site="google", job_url="https://g.co/1", location="Princeton, NJ"),  # same job via Google -> dedupe
+    row(id="2", site="linkedin", job_url="https://linkedin.com/jobs/1", location="Princeton, NJ"),  # same job on 2 boards -> dedupe
     row(id="3", title="Senior Digital Marketing Manager", min_amount=120000.0, max_amount=150000.0),  # lead (manager)
     row(id="4", title="Marketing Analyst (Hybrid)", company="Beta LLC", interval="hourly", min_amount=35.0, max_amount=45.0),
     row(id="5", title="Marketing Intern", company="Gamma", job_type="internship", min_amount=NAN, max_amount=NAN, interval=None),
@@ -59,5 +59,5 @@ def scrape_jobs(**kwargs):
     rows = REMOTE if "distance" not in kwargs else LOCAL
     if kwargs.get("location") == "99999":  # a board returning junk the database will reject
         rows = [row(id="bad", date_posted="sometime last week")]
-    rows = [r for r in rows if r["site"] in kwargs.get("site_name", ["indeed", "google"])]
+    rows = [r for r in rows if r["site"] in kwargs.get("site_name", ["indeed", "linkedin"])]
     return pd.DataFrame(rows, columns=COLUMNS)

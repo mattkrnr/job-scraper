@@ -30,8 +30,8 @@
   button.danger { color: var(--warn); }
   button.small { padding: 3px 9px; font-size: 13px; }
   input[type=text], input[type=email], input[type=number], select { font: inherit; width: 100%; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
-  label.field { display: block; margin-bottom: 14px; }
-  label.field > span { display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+  .field { display: block; margin-bottom: 14px; }
+  .field > span { display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; }
   .hint { font-size: 12px; color: var(--muted); margin-top: 3px; }
   .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   .checks { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -134,11 +134,11 @@ const sb = createClient("https://lvaxrikegqknfkzrvmbr.supabase.co", "sb_publisha
 const MODES = [["remote", "Remote"], ["hybrid", "Hybrid"], ["onsite", "On-site"]];
 const LEVELS = [["entry", "Entry"], ["mid", "Mid"], ["senior", "Senior"], ["lead", "Lead / Manager"]];
 const TYPES = [["fulltime", "Full-time"], ["parttime", "Part-time"], ["contract", "Contract"], ["internship", "Internship"]];
-const SITES = [["indeed", "Indeed"], ["google", "Google Jobs"], ["linkedin", "LinkedIn"], ["zip_recruiter", "ZipRecruiter"], ["glassdoor", "Glassdoor"]];
+const SITES = [["indeed", "Indeed"], ["linkedin", "LinkedIn"], ["google", "Google Jobs"], ["zip_recruiter", "ZipRecruiter"], ["glassdoor", "Glassdoor"]];
 const STATUSES = ["new", "saved", "applied", "dismissed"];
 const BLANK = { name: "", active: true, origin: "", radius_miles: 25, titles: [], must_include: [], exclude_words: [],
   min_salary: null, include_no_salary: true, work_modes: ["remote", "hybrid", "onsite"], experience_levels: [],
-  job_types: [], hours_old: 72, sites: ["indeed", "google"] };
+  job_types: [], hours_old: 72, sites: ["indeed", "linkedin"] };
 
 let user = null, searches = [], selectedId = null, draft = null, jobs = [], tab = "new", newCounts = {};
 
@@ -166,7 +166,7 @@ sb.auth.onAuthStateChange((_e, session) => {
 });
 
 async function boot() {
-  $("login").hidden = !!user; $("app").hidden = !user; $("notAllowed").hidden = true;
+  $("login").hidden = !!user; $("app").hidden = true; $("notAllowed").hidden = true;
   $("who").innerHTML = user ? `${esc(user.email)} <button class="small" id="out">Sign out</button>` : "";
   if (!user) return;
   $("out").onclick = () => sb.auth.signOut();
@@ -176,7 +176,7 @@ async function boot() {
     $("notAllowed").querySelector("b").textContent = user.email;
     return;
   }
-  $("notAllowed").hidden = true;
+  $("app").hidden = false;   // RLS still protects the data if this check itself failed
   await loadSearches();
 }
 
@@ -250,16 +250,16 @@ function renderEditor(s) {
         <label class="field"><span>Jobs with no salary listed</span>
           <select id="f_nosal"><option value="1" ${s.include_no_salary ? "selected" : ""}>Keep them</option><option value="0" ${s.include_no_salary ? "" : "selected"}>Hide them</option></select></label>
       </div>
-      <label class="field"><span>Work setup</span>${checks("modes", MODES, s.work_modes)}</label>
-      <label class="field"><span>Experience level</span>${checks("levels", LEVELS, s.experience_levels)}<div class="hint">None selected = any. Guessed from the job title (e.g. "Senior", "Lead", "Junior").</div></label>
-      <label class="field"><span>Job type</span>${checks("types", TYPES, s.job_types)}<div class="hint">None selected = any.</div></label>
+      <div class="field"><span>Work setup</span>${checks("modes", MODES, s.work_modes)}</div>
+      <div class="field"><span>Experience level</span>${checks("levels", LEVELS, s.experience_levels)}<div class="hint">None selected = any. Guessed from the job title (e.g. "Senior", "Lead", "Junior").</div></div>
+      <div class="field"><span>Job type</span>${checks("types", TYPES, s.job_types)}<div class="hint">None selected = any.</div></div>
       <div class="row">
         <label class="field"><span>Posted within</span>
           <select id="f_hours">${[[24, "1 day"], [72, "3 days"], [168, "1 week"], [336, "2 weeks"], [720, "30 days"]].map(([v, l]) => `<option value="${v}" ${s.hours_old == v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
         <label class="field"><span>Status</span>
           <select id="f_active"><option value="1" ${s.active ? "selected" : ""}>Active — checked every 6 hours</option><option value="0" ${s.active ? "" : "selected"}>Paused</option></select></label>
       </div>
-      <label class="field"><span>Job boards</span>${checks("sites", SITES, s.sites)}<div class="hint">Indeed and Google Jobs are the most reliable. LinkedIn often blocks automated searches.</div></label>
+      <div class="field"><span>Job boards</span>${checks("sites", SITES, s.sites)}<div class="hint">Indeed and LinkedIn work best. In our checks Google Jobs returned nothing and ZipRecruiter / Glassdoor blocked the scraper.</div></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="primary" type="submit">${isNew ? "Create search" : "Save changes"}</button>
         <button type="button" id="testBtn" title="Runs these settings once without saving matches">Test these settings</button>
         ${isNew ? `<button type="button" id="cancelBtn">Cancel</button>` : ""}</div>
@@ -320,16 +320,15 @@ function stopPoll() { clearTimeout(pollTimer); pollTimer = null; }
 async function queueTest(searchId) {
   const params = readForm();
   if (!params) return;
-  let { data, error } = await sb.from("job_test_runs").insert({ search_id: searchId, params }).select().single();
-  if (error?.code === "23505") {
-    // One open test per person: replace a waiting one with these settings
-    const { data: open } = await sb.from("job_test_runs").select("id,status").in("status", ["queued", "running"]).maybeSingle();
-    if (open?.status === "running") return toast("A test is running right now — try again when it finishes");
-    if (open) ({ data, error } = await sb.from("job_test_runs")
-      .update({ search_id: searchId, params, requested_at: new Date().toISOString() }).eq("id", open.id).eq("status", "queued").select().single());
-    if (!error) toast("Replaced your waiting test with these settings");
-  }
-  if (error) return toast("Couldn't start test: " + error.message);
+  // One open test per person (enforced by a unique index): replace a waiting one instead of adding another
+  const { data: open } = await sb.from("job_test_runs").select("id,status").in("status", ["queued", "running"]).maybeSingle();
+  if (open?.status === "running") return toast("A test is running right now — try again when it finishes");
+  const { data, error } = open
+    ? await sb.from("job_test_runs").update({ search_id: searchId, params, requested_at: new Date().toISOString() })
+        .eq("id", open.id).eq("status", "queued").select().single()
+    : await sb.from("job_test_runs").insert({ search_id: searchId, params }).select().single();
+  if (error) return toast("Couldn't start test: " + (error.code === "23505" || error.code === "PGRST116" ? "it just started running — try again in a few minutes" : error.message));
+  if (open) toast("Replaced your waiting test with these settings");
   test = data; renderTest(); poll();
 }
 

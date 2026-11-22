@@ -67,9 +67,15 @@ class AppUI(unittest.TestCase):
         def rest(route):
             req = route.request
             target = REST + req.url[len(SB + "/rest/v1"):]
-            resp = route.fetch(url=target)
-            route.fulfill(response=resp, headers={**resp.headers, "access-control-allow-origin": "*",
-                                                  "access-control-expose-headers": "content-range"})
+            try:
+                resp = route.fetch(url=target)
+                body = resp.body()  # read now: the response object can be disposed if the page moves on
+                route.fulfill(status=resp.status, body=body,
+                              headers={**resp.headers, "access-control-allow-origin": "*",
+                                       "access-control-expose-headers": "content-range"})
+            except Exception as e:  # page navigated away mid-request (reload); nothing to deliver
+                if "disposed" not in str(e) and "closed" not in str(e):
+                    raise
 
         def auth(route):
             url = route.request.url
@@ -136,6 +142,7 @@ class AppUI(unittest.TestCase):
         self.assertEqual((row["origin"], row["radius_miles"]), ("08551", 18))
         self.assertEqual((row["experience_levels"], row["job_types"]), (["mid"], ["fulltime"]))
         self.assertEqual(sorted(row["work_modes"]), ["hybrid", "onsite", "remote"])
+        self.assertEqual(row["sites"], ["indeed", "linkedin"])
 
         page.fill("#f_radius", "30")
         page.click("#editForm button[type=submit]")
@@ -154,6 +161,16 @@ class AppUI(unittest.TestCase):
         page.click("#delBtn")
         expect(page.locator(".search-item")).to_have_count(1)
         self.assertEqual(q1("select count(*) from public.job_searches;"), "1")
+
+    def test_clicking_a_section_title_does_not_toggle_a_filter(self):
+        page = self.open_as(OWNER)
+        page.click("#newBtn")
+        for title in ("Work setup", "Experience level", "Job type", "Job boards"):
+            page.locator(".field > span", has_text=title).click()
+        checked = page.evaluate("""() => Object.fromEntries(['modes','levels','types','sites'].map(n =>
+            [n, [...document.querySelectorAll(`input[name=${n}]:checked`)].map(i => i.value)]))""")
+        self.assertEqual(checked, {"modes": ["remote", "hybrid", "onsite"], "levels": [], "types": [],
+                                   "sites": ["indeed", "linkedin"]})
 
     def test_validation(self):
         page = self.open_as(OWNER)

@@ -139,7 +139,7 @@ class ScraperE2E(unittest.TestCase):
     def test_test_run_returns_kept_and_dropped_without_saving_matches(self):
         params = {"name": "Draft", "origin": "08551", "radius_miles": 18, "titles": ["digital marketing", "marketing analyst"],
                   "work_modes": ["remote", "hybrid", "onsite"], "experience_levels": ["mid"], "job_types": ["fulltime"],
-                  "hours_old": 168, "min_salary": None, "include_no_salary": True, "sites": ["indeed", "google"],
+                  "hours_old": 168, "min_salary": None, "include_no_salary": True, "sites": ["indeed", "linkedin"],
                   "must_include": [], "exclude_words": [], "active": True}
         t = queue_test(OWNER, params)
         self.assertEqual(q1(f"select public.job_scraper_pending_tests('{TOKEN}');", role="anon"), "1")

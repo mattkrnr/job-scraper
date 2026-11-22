@@ -57,7 +57,7 @@ def run_query(sites, term, location, distance, hours_old, remote=False):
 
 def run_search(search):
     terms = [t for t in (search.get("titles") or []) if t.strip()] or [search["name"]]
-    sites = search.get("sites") or ["indeed", "google"]
+    sites = search.get("sites") or ["indeed", "linkedin"]
     modes = search.get("work_modes") or []
     raw, errors = [], []
     for term in terms:
@@ -96,7 +96,7 @@ def run_search(search):
 
 SEARCH_DEFAULTS = {"name": "Test", "origin": "", "radius_miles": 25, "titles": [], "must_include": [], "exclude_words": [],
                    "min_salary": None, "include_no_salary": True, "work_modes": ["remote", "hybrid", "onsite"],
-                   "experience_levels": [], "job_types": [], "hours_old": 72, "sites": ["indeed", "google"]}
+                   "experience_levels": [], "job_types": [], "hours_old": 72, "sites": ["indeed", "linkedin"]}
 
 
 def preview(m, keep_it, reason=""):
