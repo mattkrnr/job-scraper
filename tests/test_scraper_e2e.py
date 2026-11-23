@@ -86,6 +86,17 @@ class ScraperE2E(unittest.TestCase):
         self.assertEqual(len(matches(a)), n_before, "second run must not duplicate")
         self.assertEqual(search(a)["last_run_new"], 0)
 
+    def test_far_away_onsite_jobs_from_the_nationwide_query_are_dropped(self):
+        a = add_search(OWNER, "All setups")  # remote + hybrid + onsite -> local query and nationwide query
+        p, _ = run_scraper(self.url)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        companies = {m["company"] for m in matches(a)}
+        self.assertNotIn("Far Away Co", companies)
+        self.assertNotIn("Also Far", companies)
+        self.assertIn("Epsilon", companies, "remote jobs from the nationwide query are still kept")
+        self.assertIn("Acme Corp", companies, "local on-site jobs are still kept")
+        self.assertIn("not remote (outside distance) 2", search(a)["last_run_status"])
+
     def test_one_bad_search_does_not_stop_the_others(self):
         bad = add_search(OWNER, "Junk data", origin="99999", work_modes=["onsite"])
         good = add_search(FRIEND, "Fine", work_modes=["onsite"])

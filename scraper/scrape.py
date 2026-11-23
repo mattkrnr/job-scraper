@@ -68,7 +68,8 @@ def run_search(search):
             queries.append(("United States", True))
         for location, remote in queries:
             try:
-                raw += run_query(sites, term, location, search["radius_miles"], search["hours_old"], remote)
+                rows = run_query(sites, term, location, search["radius_miles"], search["hours_old"], remote)
+                raw += [{**r, "_nationwide": remote} for r in rows]
             except Exception as e:  # one bad board shouldn't sink the run
                 errors.append(f"{term}{' (remote)' if remote else ''}: {str(e)[:120]}")
             time.sleep(QUERY_PAUSE)
@@ -79,7 +80,11 @@ def run_search(search):
         if m["job_key"] in seen:
             continue
         seen.add(m["job_key"])
-        ok, why = keep(m, search)
+        if job.get("_nationwide") and m["work_mode"] != "remote":
+            # the nationwide query has no distance limit, so only fully remote jobs from it count
+            ok, why = False, "not remote (outside distance)"
+        else:
+            ok, why = keep(m, search)
         if ok:
             matches.append(m)
         else:

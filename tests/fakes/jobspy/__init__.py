@@ -43,6 +43,9 @@ REMOTE = [
         min_amount=110000.0, max_amount=130000.0),
     row(id="r2", title="Digital Marketing Coordinator", company="Zeta", location="United States", is_remote=True,
         min_amount=NAN, max_amount=NAN, interval=None),
+    # the nationwide query also returns on-site / hybrid jobs far away; these must never be kept
+    row(id="r3", title="Digital Marketing Specialist", company="Far Away Co", location="Austin, TX, USA", is_remote=False),
+    row(id="r4", title="Digital Marketing Analyst (Hybrid)", company="Also Far", location="Honolulu, HI, USA", is_remote=False),
 ]
 
 
