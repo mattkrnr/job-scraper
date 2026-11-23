@@ -256,6 +256,65 @@ class AppUI(unittest.TestCase):
         self.assertEqual(q1("select status from public.job_matches where job_key='x';"), "dismissed")
         expect(page.locator(".search-item .badge")).to_have_count(0)
 
+    def test_match_filters(self):
+        page = self.open_as(OWNER)
+        self.create_search(page, "DM")
+        sid = q1("select id from public.job_searches where name='DM';")
+        self.add_match(OWNER, sid, "a", "SEO Specialist", company="Acme", work_mode="remote", experience_level="mid",
+                       salary_min=60000, salary_max=80000, date_posted="2020-01-01")
+        self.add_match(OWNER, sid, "b", "Growth Marketer", company="Beta", work_mode="onsite", experience_level="senior",
+                       salary_min=120000, salary_max=140000)
+        self.add_match(OWNER, sid, "c", "Content Lead", company="Gamma", work_mode="hybrid", experience_level="lead",
+                       salary_min=None, salary_max=None)
+        page.reload()
+        page.click(".search-item")
+        jobs = page.locator("#matchList .job")
+        expect(jobs).to_have_count(3)
+
+        page.locator("#mf_q").press_sequentially("beta")       # list updates while typing; box keeps focus
+        expect(jobs).to_have_count(1)
+        expect(jobs).to_contain_text("Growth Marketer")
+        expect(page.locator("#mf_q")).to_be_focused()
+        expect(page.locator("#mf_summary")).to_contain_text("Showing 1 of 3")
+        page.fill("#mf_q", "")
+
+        page.click("#matches label:has(input[data-mf=modes][value=remote])")
+        expect(jobs).to_have_count(1)
+        page.click("#matches label:has(input[data-mf=modes][value=hybrid])")
+        expect(jobs).to_have_count(2)
+        page.click("#mf_clear")
+        expect(jobs).to_have_count(3)
+
+        page.click("#matches label:has(input[data-mf=levels][value=senior])")
+        expect(jobs).to_have_count(1)
+        page.click("#mf_clear")
+
+        page.fill("#mf_min", "100000")
+        expect(jobs).to_have_count(2)                            # Beta (140k) + Gamma (no salary listed)
+        page.click("#matches label:has(input[data-mf=hideNoSalary])")
+        expect(jobs).to_have_count(1)
+        page.click("#mf_clear")
+
+        page.select_option("#mf_days", "7")                      # Acme was posted in 2020
+        expect(jobs).to_have_count(2)
+        page.click("#mf_clear")
+
+        page.select_option("#mf_sort", "salary")
+        expect(jobs.nth(0)).to_contain_text("Growth Marketer")
+        expect(jobs.nth(2)).to_contain_text("Content Lead")      # no salary sorts last
+        page.select_option("#mf_sort", "company")
+        expect(jobs.nth(0)).to_contain_text("Acme")
+
+        page.click("#matches label:has(input[data-mf=modes][value=onsite])")
+        expect(page.locator("#clearNew")).to_contain_text("Dismiss 1 shown new")
+        page.click("#clearNew")
+        self.assertEqual(q1("select string_agg(job_key || '=' || status, ',' order by job_key) from public.job_matches;"),
+                         "a=new,b=dismissed,c=new", "only the filtered (visible) new job is dismissed")
+
+        page.click("#matches label:has(input[data-mf=modes][value=onsite])")
+        page.locator("#matchList .job", has_text="SEO Specialist").locator("[data-set=saved]").click()
+        expect(page.locator("[data-tab=saved]")).to_contain_text("1")
+
     def test_users_only_see_their_own_searches_in_the_app(self):
         page = self.open_as(OWNER)
         self.create_search(page, "Owner private search")

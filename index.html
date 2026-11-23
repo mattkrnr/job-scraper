@@ -62,6 +62,10 @@
   .job.seen h3 { font-weight: 500; }
   .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-right: 7px; vertical-align: middle; }
   .tag.strong { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .mfilters { display: grid; gap: 8px; margin-bottom: 12px; padding: 10px; background: var(--bg); border-radius: 10px; }
+  .mfrow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .mfrow input[type=number] { width: 140px; }
+  .mfrow select { width: auto; }
   .appbox { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-top: 8px; }
   .appbox .field { margin-bottom: 10px; }
   .appbox input, .appbox select { background: var(--card); }
@@ -210,7 +214,7 @@ function renderList() {
 function showPlaceholder() { $("editor").hidden = true; $("matches").hidden = true; $("testPanel").hidden = true; stopPoll(); $("placeholder").hidden = false; }
 
 function select(id) {
-  selectedId = id; draft = null; tab = "new";
+  selectedId = id; draft = null; tab = "new"; mf = { ...MF0 };
   renderList();
   renderEditor(searches.find((s) => s.id === id));
   loadMatches();
@@ -403,15 +407,76 @@ async function loadMatches() {
   renderMatches();
 }
 
+const MF0 = { q: "", modes: [], levels: [], minSalary: "", hideNoSalary: false, days: "", sort: "found" };
+let mf = { ...MF0 };
+const topPay = (j) => j.salary_max ?? j.salary_min ?? null;
+
+function filteredJobs() {
+  const q = mf.q.trim().toLowerCase(), min = parseInt(mf.minSalary) || 0, days = parseInt(mf.days) || 0;
+  const cutoff = days ? Date.now() - days * 864e5 : 0;
+  const out = jobs.filter((j) => {
+    if (q && ![j.title, j.company, j.location].some((v) => (v || "").toLowerCase().includes(q))) return false;
+    if (mf.modes.length && !mf.modes.includes(j.work_mode)) return false;
+    if (mf.levels.length && !mf.levels.includes(j.experience_level)) return false;
+    const pay = topPay(j);
+    if (pay == null ? mf.hideNoSalary : min && pay < min) return false;
+    if (cutoff && new Date(j.date_posted ? j.date_posted + "T12:00:00" : j.found_at).getTime() < cutoff) return false;
+    return true;
+  });
+  const by = {
+    found: (a, b) => new Date(b.found_at) - new Date(a.found_at),
+    posted: (a, b) => (b.date_posted || "").localeCompare(a.date_posted || ""),
+    salary: (a, b) => (topPay(b) ?? -1) - (topPay(a) ?? -1),
+    company: (a, b) => (a.company || "~").localeCompare(b.company || "~"),
+  }[mf.sort];
+  return out.sort(by);
+}
+const filtersActive = () => JSON.stringify({ ...mf, sort: "found" }) !== JSON.stringify(MF0);
+
 function renderMatches() {
   $("matches").hidden = false;
-  const counts = Object.fromEntries(STATUSES.map((s) => [s, jobs.filter((j) => j.status === s).length]));
-  const shown = tab === "all" ? jobs : jobs.filter((j) => j.status === tab);
+  const chip = (name, v, l, on) => `<label><input type="checkbox" data-mf="${name}" value="${v}" ${on ? "checked" : ""}>${l}</label>`;
   $("matches").innerHTML = `
-    <div class="toolbar"><h2>Matches</h2>${counts.new ? `<button class="small" id="clearNew">Dismiss all new</button>` : ""}</div>
-    <div class="tabs">${[...STATUSES, "all"].map((s) => `<button class="small ${tab === s ? "on" : ""}" data-tab="${s}">${s[0].toUpperCase() + s.slice(1)} ${s === "all" ? jobs.length : counts[s]}</button>`).join("")}</div>
-    <div>${shown.length ? shown.map(jobHtml).join("") : `<div class="empty">${jobs.length ? "Nothing here." : "No matches yet. The scraper runs every 6 hours."}</div>`}</div>`;
-  document.querySelectorAll("[data-tab]").forEach((b) => b.onclick = () => { tab = b.dataset.tab; renderMatches(); });
+    <div class="toolbar"><h2>Matches</h2><span id="clearNewWrap"></span></div>
+    <div class="mfilters">
+      <input type="text" id="mf_q" placeholder="Search title, company or location" value="${esc(mf.q)}">
+      <div class="checks">${MODES.map(([v, l]) => chip("modes", v, l, mf.modes.includes(v))).join("")}</div>
+      <div class="checks">${LEVELS.map(([v, l]) => chip("levels", v, l, mf.levels.includes(v))).join("")}</div>
+      <div class="mfrow">
+        <input type="number" id="mf_min" min="0" step="5000" placeholder="Min salary" value="${esc(mf.minSalary)}">
+        <div class="checks">${chip("hideNoSalary", "1", "Hide no salary", mf.hideNoSalary)}</div>
+        <select id="mf_days">${[["", "Any date"], ["1", "Last day"], ["3", "Last 3 days"], ["7", "Last week"], ["14", "Last 2 weeks"]].map(([v, l]) => `<option value="${v}" ${mf.days === v ? "selected" : ""}>${l}</option>`).join("")}</select>
+        <select id="mf_sort">${[["found", "Newest found"], ["posted", "Newest posted"], ["salary", "Highest salary"], ["company", "Company A–Z"]].map(([v, l]) => `<option value="${v}" ${mf.sort === v ? "selected" : ""}>Sort: ${l}</option>`).join("")}</select>
+        <button class="small" id="mf_clear" type="button">Clear filters</button>
+      </div>
+    </div>
+    <div id="matchList"></div>`;
+  $("mf_q").oninput = (e) => { mf.q = e.target.value; renderMatchList(); };
+  $("mf_min").oninput = (e) => { mf.minSalary = e.target.value; renderMatchList(); };
+  $("mf_days").onchange = (e) => { mf.days = e.target.value; renderMatchList(); };
+  $("mf_sort").onchange = (e) => { mf.sort = e.target.value; renderMatchList(); };
+  $("mf_clear").onclick = () => { mf = { ...MF0, sort: mf.sort }; renderMatches(); };
+  document.querySelectorAll("[data-mf]").forEach((c) => c.onchange = () => {
+    const k = c.dataset.mf;
+    if (k === "hideNoSalary") mf.hideNoSalary = c.checked;
+    else mf[k] = [...document.querySelectorAll(`[data-mf=${k}]:checked`)].map((i) => i.value);
+    renderMatchList();
+  });
+  renderMatchList();
+}
+
+function renderMatchList() {
+  const visible = filteredJobs();
+  const counts = Object.fromEntries(STATUSES.map((s) => [s, visible.filter((j) => j.status === s).length]));
+  const shown = tab === "all" ? visible : visible.filter((j) => j.status === tab);
+  const filtering = filtersActive();
+  $("mf_clear").hidden = !filtering;
+  $("clearNewWrap").innerHTML = counts.new ? `<button class="small" id="clearNew">Dismiss ${filtering ? counts.new + " shown" : "all"} new</button>` : "";
+  $("matchList").innerHTML = `
+    <div class="tabs">${[...STATUSES, "all"].map((s) => `<button class="small ${tab === s ? "on" : ""}" data-tab="${s}">${s[0].toUpperCase() + s.slice(1)} ${s === "all" ? visible.length : counts[s]}</button>`).join("")}</div>
+    ${filtering ? `<p class="hint" id="mf_summary">Showing ${visible.length} of ${jobs.length} matches</p>` : ""}
+    <div>${shown.length ? shown.map(jobHtml).join("") : `<div class="empty">${jobs.length ? (filtering ? "No matches fit these filters." : "Nothing here.") : "No matches yet. The scraper runs every 6 hours."}</div>`}</div>`;
+  document.querySelectorAll("[data-tab]").forEach((b) => b.onclick = () => { tab = b.dataset.tab; renderMatchList(); });
   document.querySelectorAll("[data-set]").forEach((b) => b.onclick = () => setStatus(b.dataset.id, b.dataset.set));
   document.querySelectorAll("[data-view]").forEach((b) => b.onclick = () => {
     const j = jobs.find((x) => x.id === b.dataset.view);
@@ -426,10 +491,11 @@ function renderMatches() {
     if (await updateJob(j, patch)) toast("Application saved");
   });
   if ($("clearNew")) $("clearNew").onclick = async () => {
-    const ids = jobs.filter((j) => j.status === "new").map((j) => j.id);
-    const { error } = await sb.from("job_matches").update({ status: "dismissed" }).in("id", ids);
+    const targets = filteredJobs().filter((j) => j.status === "new");
+    const { error } = await sb.from("job_matches").update({ status: "dismissed" }).in("id", targets.map((j) => j.id));
     if (error) return toast(error.message);
-    jobs.forEach((j) => { if (j.status === "new") j.status = "dismissed"; }); newCounts[selectedId] = 0; renderList(); renderMatches();
+    targets.forEach((j) => j.status = "dismissed");
+    newCounts[selectedId] = jobs.filter((j) => j.status === "new").length; renderList(); renderMatchList();
   };
 }
 
@@ -479,7 +545,7 @@ function jobHtml(j) {
 async function updateJob(j, patch) {
   const { error } = await sb.from("job_matches").update(patch).eq("id", j.id);
   if (error) { toast(error.message); return false; }
-  Object.assign(j, patch); renderMatches(); return true;
+  Object.assign(j, patch); renderMatchList(); return true;
 }
 
 async function setStatus(id, status) {
@@ -493,7 +559,7 @@ async function setStatus(id, status) {
   if (!(await updateJob(j, patch))) return;
   if (wasNew) newCounts[selectedId]--; if (status === "new") newCounts[selectedId] = (newCounts[selectedId] || 0) + 1;
   renderList();
-  if (status === "applied") { tab = "applied"; renderMatches(); toast("Add the application link below so you can check its status later"); }
+  if (status === "applied") { tab = "applied"; renderMatchList(); toast("Add the application link below so you can check its status later"); }
 }
 </script>
 </body>
